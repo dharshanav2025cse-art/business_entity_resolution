@@ -1,0 +1,15 @@
+BUSINESS ENTITY RESOLUTION - BLOCKING SUMMARY
+============================================================
+
+S1 records: 5,000
+S2 records: 8,000
+S3 records: 8,000
+
+Possible comparisons: 80,000,000
+Candidate comparisons: 21,633,422
+Search-space reduction: 72.96%
+
+S2 blocking recall: 100.0000%
+S3 blocking recall: 100.0000%
+Overall blocking recall: 100.0000%
+Entity-level complete recall: 100.0000%

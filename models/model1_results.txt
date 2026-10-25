@@ -1,0 +1,69 @@
+BUSINESS ENTITY RESOLUTION
+MODEL 1 - LOGISTIC REGRESSION
+========================================
+
+Original feature rows:
+21,633,422
+
+Positive pairs:
+6,855
+
+Negative pairs:
+21,626,567
+
+Negative examples used:
+68,550
+
+Model dataset:
+75,405
+
+Training rows:
+60,324
+
+Validation rows:
+15,081
+
+Threshold:
+0.50
+
+Precision:
+0.981335
+
+Recall:
+0.997082
+
+F0.5:
+0.984445
+
+PR-AUC:
+0.999615
+
+Confusion Matrix:
+True Negatives  = 13,684
+False Positives = 26
+False Negatives = 4
+True Positives  = 1,367
+
+FEATURE COEFFICIENTS
+========================================
+
+                  feature  coefficient
+               name_tfidf     4.149762
+          address_jaccard     2.355614
+            address_tfidf     1.638945
+               name_exact     1.635688
+            country_exact     1.182040
+             name_jaccard     0.842421
+   candidate_name_missing     0.703617
+candidate_country_missing     0.365436
+  source1_country_missing     0.349100
+         name_token_exact     0.234973
+candidate_address_missing     0.105181
+  source1_address_missing     0.069871
+     source1_name_missing     0.000000
+      address_token_exact    -0.276960
+address_length_difference    -0.319849
+            address_exact    -0.363937
+   name_length_difference    -0.471393
+        name_length_ratio    -1.243655
+     address_length_ratio    -1.291070

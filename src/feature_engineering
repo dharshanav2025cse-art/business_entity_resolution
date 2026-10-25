@@ -1,0 +1,1577 @@
+
+from pathlib import Path
+import re
+import sys
+import unicodedata
+
+import numpy as np
+import pandas as pd
+from joblib import dump
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+NORMALIZED_TRAIN = PROJECT_ROOT / "dataset" / "normalized" / "train"
+
+CANDIDATE_FILE = (
+    PROJECT_ROOT
+    / "dataset"
+    / "candidates"
+    / "candidate_pairs_train_long.tsv"
+)
+
+GROUND_TRUTH_FILE = (
+    NORMALIZED_TRAIN
+    / "train_ground_truth.tsv"
+)
+
+FEATURE_DIR = (
+    PROJECT_ROOT
+    / "dataset"
+    / "features"
+)
+
+FEATURE_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+OUTPUT_FILE = (
+    FEATURE_DIR
+    / "train_features.tsv.gz"
+)
+
+SUMMARY_FILE = (
+    FEATURE_DIR
+    / "feature_summary.txt"
+)
+
+MODEL_DIR = PROJECT_ROOT / "models"
+NAME_TFIDF_VECTORIZER_FILE = MODEL_DIR / "name_tfidf_vectorizer.joblib"
+ADDRESS_TFIDF_VECTORIZER_FILE = MODEL_DIR / "address_tfidf_vectorizer.joblib"
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+# Larger = faster, but uses more RAM.
+CHUNK_SIZE = 100_000
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def safe_text_series(series):
+    return (
+        series
+        .fillna("")
+        .astype(str)
+    )
+
+
+def normalize_basic(text):
+    if not text:
+        return ""
+
+    text = unicodedata.normalize(
+        "NFKD",
+        str(text)
+    )
+
+    text = "".join(
+        c
+        for c in text
+        if not unicodedata.combining(c)
+    )
+
+    text = text.lower()
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    ).strip()
+
+    return text
+
+
+def jaccard_pair(a, b):
+    """
+    Token Jaccard similarity for one pair.
+    Used only as a fallback for rows where the
+    normalized token strings are not identical.
+    """
+
+    if not a and not b:
+        return 1.0
+
+    if not a or not b:
+        return 0.0
+
+    a_set = set(a.split())
+    b_set = set(b.split())
+
+    if not a_set and not b_set:
+        return 1.0
+
+    union = a_set | b_set
+
+    if not union:
+        return 0.0
+
+    return len(a_set & b_set) / len(union)
+
+
+def calculate_jaccard_series(
+    left,
+    right
+):
+    """
+    Calculate Jaccard similarity in chunks.
+
+    Exact token matches are handled immediately.
+    Only non-exact rows need set operations.
+    """
+
+    result = np.zeros(
+        len(left),
+        dtype=np.float32
+    )
+
+    left_values = left.to_numpy()
+    right_values = right.to_numpy()
+
+    exact_mask = (
+        (left_values == right_values)
+        & (left_values != "")
+    )
+
+    result[exact_mask] = 1.0
+
+    different_indices = np.where(
+        ~exact_mask
+    )[0]
+
+    for idx in different_indices:
+
+        a = left_values[idx]
+        b = right_values[idx]
+
+        if not a or not b:
+            result[idx] = 0.0
+            continue
+
+        result[idx] = jaccard_pair(
+            a,
+            b
+        )
+
+    return result
+
+
+# ============================================================
+# START
+# ============================================================
+
+print("=" * 70)
+print("BUSINESS ENTITY RESOLUTION")
+print("OPTIMIZED FEATURE ENGINEERING")
+print("=" * 70)
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+print("\nLoading normalized training data...")
+
+
+s1 = pd.read_csv(
+    NORMALIZED_TRAIN / "train_source1.tsv",
+    sep="\t",
+    dtype=str
+).fillna("")
+
+
+s2 = pd.read_csv(
+    NORMALIZED_TRAIN / "train_source2.tsv",
+    sep="\t",
+    dtype=str
+).fillna("")
+
+
+s3 = pd.read_csv(
+    NORMALIZED_TRAIN / "train_source3.tsv",
+    sep="\t",
+    dtype=str
+).fillna("")
+
+
+print(
+    f"Source 1: {len(s1):,}"
+)
+
+print(
+    f"Source 2: {len(s2):,}"
+)
+
+print(
+    f"Source 3: {len(s3):,}"
+)
+
+
+# ============================================================
+# KEEP ONLY REQUIRED COLUMNS
+# ============================================================
+
+required_columns = [
+    "entity_id",
+    "business_name_normalized",
+    "business_name_token_normalized",
+    "business_address_normalized",
+    "business_address_token_normalized",
+    "country_normalized"
+]
+
+
+s1 = s1[required_columns].copy()
+s2 = s2[required_columns].copy()
+s3 = s3[required_columns].copy()
+
+
+# ============================================================
+# PREPARE LOOKUP TABLES
+# ============================================================
+
+print("\nPreparing lookup tables...")
+
+
+s1_lookup = (
+    s1
+    .set_index("entity_id")
+)
+
+
+s2_lookup = (
+    s2
+    .set_index("entity_id")
+)
+
+
+s3_lookup = (
+    s3
+    .set_index("entity_id")
+)
+
+
+# ============================================================
+# POSITION MAPS FOR TF-IDF
+# ============================================================
+
+s1_name_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s1["entity_id"])
+}
+
+
+s2_name_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s2["entity_id"])
+}
+
+
+s3_name_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s3["entity_id"])
+}
+
+
+s1_address_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s1["entity_id"])
+}
+
+
+s2_address_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s2["entity_id"])
+}
+
+
+s3_address_position = {
+    entity_id: position
+    for position, entity_id
+    in enumerate(s3["entity_id"])
+}
+
+
+# ============================================================
+# TF-IDF
+# ============================================================
+
+print("\nBuilding TF-IDF models...")
+
+
+name_vectorizer = TfidfVectorizer(
+    analyzer="char",
+    ngram_range=(2, 5),
+    min_df=2,
+    max_features=100_000
+)
+
+
+address_vectorizer = TfidfVectorizer(
+    analyzer="char",
+    ngram_range=(2, 5),
+    min_df=2,
+    max_features=100_000
+)
+
+
+all_names = pd.concat(
+    [
+        s1["business_name_normalized"],
+        s2["business_name_normalized"],
+        s3["business_name_normalized"]
+    ],
+    ignore_index=True
+)
+
+
+all_addresses = pd.concat(
+    [
+        s1["business_address_normalized"],
+        s2["business_address_normalized"],
+        s3["business_address_normalized"]
+    ],
+    ignore_index=True
+)
+
+
+print("Fitting name TF-IDF...")
+
+name_vectorizer.fit(
+    all_names
+)
+
+
+print("Fitting address TF-IDF...")
+
+address_vectorizer.fit(
+    all_addresses
+)
+
+MODEL_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+dump(
+    name_vectorizer,
+    NAME_TFIDF_VECTORIZER_FILE
+)
+
+dump(
+    address_vectorizer,
+    ADDRESS_TFIDF_VECTORIZER_FILE
+)
+
+print("\nSaved training TF-IDF vectorizers:")
+print(NAME_TFIDF_VECTORIZER_FILE)
+print(ADDRESS_TFIDF_VECTORIZER_FILE)
+
+if "--vectorizers-only" in sys.argv:
+    print("Vectorizer-only mode: training feature rows were not regenerated.")
+    raise SystemExit(0)
+
+
+print("Creating name matrices...")
+
+
+s1_name_matrix = name_vectorizer.transform(
+    s1["business_name_normalized"]
+)
+
+s2_name_matrix = name_vectorizer.transform(
+    s2["business_name_normalized"]
+)
+
+s3_name_matrix = name_vectorizer.transform(
+    s3["business_name_normalized"]
+)
+
+
+print("Creating address matrices...")
+
+
+s1_address_matrix = address_vectorizer.transform(
+    s1["business_address_normalized"]
+)
+
+s2_address_matrix = address_vectorizer.transform(
+    s2["business_address_normalized"]
+)
+
+s3_address_matrix = address_vectorizer.transform(
+    s3["business_address_normalized"]
+)
+
+
+# ============================================================
+# GROUND TRUTH
+# ============================================================
+
+print("\nLoading ground truth...")
+
+
+ground_truth = pd.read_csv(
+    GROUND_TRUTH_FILE,
+    sep="\t",
+    dtype=str
+).fillna("")
+
+
+true_pairs = set()
+
+
+for row in ground_truth.itertuples(
+    index=False
+):
+
+    source1_id = row.source1_entity_id
+
+    matched_ids = (
+        str(row.matched_entity_ids)
+        if row.matched_entity_ids
+        else ""
+    )
+
+    if not matched_ids:
+        continue
+
+    for matched_id in matched_ids.split(","):
+
+        matched_id = matched_id.strip()
+
+        if matched_id:
+
+            true_pairs.add(
+                (
+                    source1_id,
+                    matched_id
+                )
+            )
+
+
+print(
+    f"Ground-truth pairs: {len(true_pairs):,}"
+)
+
+
+# ============================================================
+# LOAD CANDIDATES
+# ============================================================
+
+print("\nLoading candidate pairs...")
+
+
+candidates = pd.read_csv(
+    CANDIDATE_FILE,
+    sep="\t",
+    dtype=str
+).fillna("")
+
+
+print(
+    f"Candidate rows: {len(candidates):,}"
+)
+
+
+# ============================================================
+# VERIFY EXPECTED COLUMNS
+# ============================================================
+
+expected_candidate_columns = [
+    "source1_entity_id",
+    "candidate_entity_id",
+    "candidate_source"
+]
+
+
+missing_columns = [
+    column
+    for column in expected_candidate_columns
+    if column not in candidates.columns
+]
+
+
+if missing_columns:
+
+    raise ValueError(
+        "Candidate file is missing columns: "
+        + ", ".join(missing_columns)
+    )
+
+
+# ============================================================
+# FEATURE COLUMNS
+# ============================================================
+
+feature_columns = [
+
+    "source1_entity_id",
+    "candidate_entity_id",
+    "candidate_source",
+
+    # NAME
+    "name_exact",
+    "name_token_exact",
+    "name_jaccard",
+    "name_length_difference",
+    "name_length_ratio",
+    "name_tfidf",
+
+    # ADDRESS
+    "address_exact",
+    "address_token_exact",
+    "address_jaccard",
+    "address_length_difference",
+    "address_length_ratio",
+    "address_tfidf",
+
+    # COUNTRY
+    "country_exact",
+
+    # MISSINGNESS
+    "source1_name_missing",
+    "candidate_name_missing",
+    "source1_address_missing",
+    "candidate_address_missing",
+    "source1_country_missing",
+    "candidate_country_missing",
+
+    # TARGET
+    "label"
+]
+
+
+# ============================================================
+# DELETE OLD OUTPUT
+# ============================================================
+
+if OUTPUT_FILE.exists():
+
+    print(
+        "\nRemoving previous feature file..."
+    )
+
+    OUTPUT_FILE.unlink()
+
+
+# ============================================================
+# PROCESS CHUNKS
+# ============================================================
+
+print(
+    "\nStarting feature generation..."
+)
+
+print(
+    f"Chunk size: {CHUNK_SIZE:,}"
+)
+
+
+first_write = True
+
+total_rows = 0
+positive_rows = 0
+
+
+for start in range(
+    0,
+    len(candidates),
+    CHUNK_SIZE
+):
+
+    end = min(
+        start + CHUNK_SIZE,
+        len(candidates)
+    )
+
+    chunk = candidates.iloc[
+        start:end
+    ].copy()
+
+
+    print(
+        f"\nProcessing "
+        f"{start:,} - {end:,} "
+        f"/ {len(candidates):,}"
+    )
+
+
+    # ========================================================
+    # GET SOURCE 1 DATA
+    # ========================================================
+
+    chunk = chunk.merge(
+        s1.reset_index(),
+        how="left",
+        left_on="source1_entity_id",
+        right_on="entity_id",
+        suffixes=("", "_s1")
+    )
+
+
+    # ========================================================
+    # SPLIT SOURCE 2 / SOURCE 3
+    # ========================================================
+
+    source2_mask = (
+        chunk["candidate_source"]
+        == "source2"
+    )
+
+
+    source3_mask = ~source2_mask
+
+
+    # ========================================================
+    # PREPARE CANDIDATE DATAFRAME
+    # ========================================================
+
+    candidate_data = pd.DataFrame(
+        index=chunk.index
+    )
+
+
+    # --------------------------------------------------------
+    # SOURCE 2
+    # --------------------------------------------------------
+
+    source2_ids = (
+        chunk.loc[
+            source2_mask,
+            "candidate_entity_id"
+        ]
+    )
+
+
+    if len(source2_ids) > 0:
+
+        source2_data = (
+            s2
+            .set_index("entity_id")
+            .reindex(source2_ids)
+            .reset_index()
+        )
+
+        source2_data.index = (
+            source2_ids.index
+        )
+
+        source2_data = (
+            source2_data
+            .add_prefix("candidate_")
+        )
+
+        chunk.loc[
+            source2_mask,
+            "candidate_name"
+        ] = source2_data[
+            "candidate_business_name_normalized"
+        ]
+
+        chunk.loc[
+            source2_mask,
+            "candidate_name_token"
+        ] = source2_data[
+            "candidate_business_name_token_normalized"
+        ]
+
+        chunk.loc[
+            source2_mask,
+            "candidate_address"
+        ] = source2_data[
+            "candidate_business_address_normalized"
+        ]
+
+        chunk.loc[
+            source2_mask,
+            "candidate_address_token"
+        ] = source2_data[
+            "candidate_business_address_token_normalized"
+        ]
+
+        chunk.loc[
+            source2_mask,
+            "candidate_country"
+        ] = source2_data[
+            "candidate_country_normalized"
+        ]
+
+
+    # --------------------------------------------------------
+    # SOURCE 3
+    # --------------------------------------------------------
+
+    source3_ids = (
+        chunk.loc[
+            source3_mask,
+            "candidate_entity_id"
+        ]
+    )
+
+
+    if len(source3_ids) > 0:
+
+        source3_data = (
+            s3
+            .set_index("entity_id")
+            .reindex(source3_ids)
+            .reset_index()
+        )
+
+        source3_data.index = (
+            source3_ids.index
+        )
+
+        source3_data = (
+            source3_data
+            .add_prefix("candidate_")
+        )
+
+        chunk.loc[
+            source3_mask,
+            "candidate_name"
+        ] = source3_data[
+            "candidate_business_name_normalized"
+        ]
+
+        chunk.loc[
+            source3_mask,
+            "candidate_name_token"
+        ] = source3_data[
+            "candidate_business_name_token_normalized"
+        ]
+
+        chunk.loc[
+            source3_mask,
+            "candidate_address"
+        ] = source3_data[
+            "candidate_business_address_normalized"
+        ]
+
+        chunk.loc[
+            source3_mask,
+            "candidate_address_token"
+        ] = source3_data[
+            "candidate_business_address_token_normalized"
+        ]
+
+        chunk.loc[
+            source3_mask,
+            "candidate_country"
+        ] = source3_data[
+            "candidate_country_normalized"
+        ]
+
+
+    # ========================================================
+    # FILL MISSING CANDIDATE VALUES
+    # ========================================================
+
+    candidate_columns = [
+        "candidate_name",
+        "candidate_name_token",
+        "candidate_address",
+        "candidate_address_token",
+        "candidate_country"
+    ]
+
+
+    for column in candidate_columns:
+
+        chunk[column] = (
+            chunk[column]
+            .fillna("")
+            .astype(str)
+        )
+
+
+    # ========================================================
+    # SOURCE 1 VALUES
+    # ========================================================
+
+    s1_name = (
+        chunk["business_name_normalized"]
+        .fillna("")
+        .astype(str)
+    )
+
+
+    s1_name_token = (
+        chunk["business_name_token_normalized"]
+        .fillna("")
+        .astype(str)
+    )
+
+
+    s1_address = (
+        chunk["business_address_normalized"]
+        .fillna("")
+        .astype(str)
+    )
+
+
+    s1_address_token = (
+        chunk["business_address_token_normalized"]
+        .fillna("")
+        .astype(str)
+    )
+
+
+    s1_country = (
+        chunk["country_normalized"]
+        .fillna("")
+        .astype(str)
+    )
+
+
+    candidate_name = chunk[
+        "candidate_name"
+    ]
+
+
+    candidate_name_token = chunk[
+        "candidate_name_token"
+    ]
+
+
+    candidate_address = chunk[
+        "candidate_address"
+    ]
+
+
+    candidate_address_token = chunk[
+        "candidate_address_token"
+    ]
+
+
+    candidate_country = chunk[
+        "candidate_country"
+    ]
+
+
+    # ========================================================
+    # NAME FEATURES
+    # ========================================================
+
+    name_exact = (
+        (s1_name != "")
+        & (candidate_name != "")
+        & (s1_name == candidate_name)
+    ).astype(np.int8)
+
+
+    name_token_exact = (
+        (s1_name_token != "")
+        & (candidate_name_token != "")
+        & (
+            s1_name_token
+            == candidate_name_token
+        )
+    ).astype(np.int8)
+
+
+    print("  Calculating name Jaccard...")
+
+
+    name_jaccard = calculate_jaccard_series(
+        s1_name_token,
+        candidate_name_token
+    )
+
+
+    name_length_difference = (
+        s1_name.str.len()
+        -
+        candidate_name.str.len()
+    ).abs().astype(np.int16)
+
+
+    s1_name_length = (
+        s1_name.str.len()
+        .to_numpy()
+        .astype(np.float32)
+    )
+
+
+    candidate_name_length = (
+        candidate_name.str.len()
+        .to_numpy()
+        .astype(np.float32)
+    )
+
+
+    name_length_ratio = np.divide(
+        np.minimum(
+            s1_name_length,
+            candidate_name_length
+        ),
+        np.maximum(
+            s1_name_length,
+            candidate_name_length
+        ),
+        out=np.zeros(
+            len(chunk),
+            dtype=np.float32
+        ),
+        where=(
+            np.maximum(
+                s1_name_length,
+                candidate_name_length
+            ) > 0
+        )
+    )
+
+
+    # ========================================================
+    # NAME TF-IDF
+    # ========================================================
+
+    print("  Calculating name TF-IDF...")
+
+
+    name_tfidf = np.zeros(
+        len(chunk),
+        dtype=np.float32
+    )
+
+
+    for source_name, mask in [
+        ("source2", source2_mask),
+        ("source3", source3_mask)
+    ]:
+
+        indices = np.where(
+            mask.to_numpy()
+        )[0]
+
+
+        if len(indices) == 0:
+            continue
+
+
+        s1_ids_for_chunk = (
+            chunk.iloc[indices][
+                "source1_entity_id"
+            ]
+            .map(s1_name_position)
+            .to_numpy()
+        )
+
+
+        if source_name == "source2":
+
+            candidate_indices = (
+                chunk.iloc[indices][
+                    "candidate_entity_id"
+                ]
+                .map(s2_name_position)
+                .to_numpy()
+            )
+
+            candidate_matrix = s2_name_matrix
+
+        else:
+
+            candidate_indices = (
+                chunk.iloc[indices][
+                    "candidate_entity_id"
+                ]
+                .map(s3_name_position)
+                .to_numpy()
+            )
+
+            candidate_matrix = s3_name_matrix
+
+
+        valid = (
+            pd.notna(s1_ids_for_chunk)
+            &
+            pd.notna(candidate_indices)
+        )
+
+
+        valid_positions = (
+            np.where(valid)[0]
+        )
+
+
+        if len(valid_positions) > 0:
+
+            left_positions = (
+                s1_ids_for_chunk[
+                    valid_positions
+                ].astype(int)
+            )
+
+            right_positions = (
+                candidate_indices[
+                    valid_positions
+                ].astype(int)
+            )
+
+
+            # Batch sparse multiplication.
+            scores = (
+                s1_name_matrix[
+                    left_positions
+                ]
+                .multiply(
+                    candidate_matrix[
+                        right_positions
+                    ]
+                )
+                .sum(axis=1)
+            )
+
+
+            name_tfidf[
+                indices[
+                    valid_positions
+                ]
+            ] = np.asarray(
+                scores
+            ).ravel().astype(
+                np.float32
+            )
+
+
+    # ========================================================
+    # ADDRESS FEATURES
+    # ========================================================
+
+    address_exact = (
+        (s1_address != "")
+        & (candidate_address != "")
+        & (
+            s1_address
+            == candidate_address
+        )
+    ).astype(np.int8)
+
+
+    address_token_exact = (
+        (s1_address_token != "")
+        & (candidate_address_token != "")
+        & (
+            s1_address_token
+            == candidate_address_token
+        )
+    ).astype(np.int8)
+
+
+    print("  Calculating address Jaccard...")
+
+
+    address_jaccard = calculate_jaccard_series(
+        s1_address_token,
+        candidate_address_token
+    )
+
+
+    address_length_difference = (
+        s1_address.str.len()
+        -
+        candidate_address.str.len()
+    ).abs().astype(np.int16)
+
+
+    s1_address_length = (
+        s1_address.str.len()
+        .to_numpy()
+        .astype(np.float32)
+    )
+
+
+    candidate_address_length = (
+        candidate_address.str.len()
+        .to_numpy()
+        .astype(np.float32)
+    )
+
+
+    address_length_ratio = np.divide(
+        np.minimum(
+            s1_address_length,
+            candidate_address_length
+        ),
+        np.maximum(
+            s1_address_length,
+            candidate_address_length
+        ),
+        out=np.zeros(
+            len(chunk),
+            dtype=np.float32
+        ),
+        where=(
+            np.maximum(
+                s1_address_length,
+                candidate_address_length
+            ) > 0
+        )
+    )
+
+
+    # ========================================================
+    # ADDRESS TF-IDF
+    # ========================================================
+
+    print("  Calculating address TF-IDF...")
+
+
+    address_tfidf = np.zeros(
+        len(chunk),
+        dtype=np.float32
+    )
+
+
+    for source_name, mask in [
+        ("source2", source2_mask),
+        ("source3", source3_mask)
+    ]:
+
+        indices = np.where(
+            mask.to_numpy()
+        )[0]
+
+
+        if len(indices) == 0:
+            continue
+
+
+        s1_ids_for_chunk = (
+            chunk.iloc[indices][
+                "source1_entity_id"
+            ]
+            .map(s1_address_position)
+            .to_numpy()
+        )
+
+
+        if source_name == "source2":
+
+            candidate_indices = (
+                chunk.iloc[indices][
+                    "candidate_entity_id"
+                ]
+                .map(s2_address_position)
+                .to_numpy()
+            )
+
+            candidate_matrix = (
+                s2_address_matrix
+            )
+
+        else:
+
+            candidate_indices = (
+                chunk.iloc[indices][
+                    "candidate_entity_id"
+                ]
+                .map(s3_address_position)
+                .to_numpy()
+            )
+
+            candidate_matrix = (
+                s3_address_matrix
+            )
+
+
+        valid = (
+            pd.notna(s1_ids_for_chunk)
+            &
+            pd.notna(candidate_indices)
+        )
+
+
+        valid_positions = (
+            np.where(valid)[0]
+        )
+
+
+        if len(valid_positions) > 0:
+
+            left_positions = (
+                s1_ids_for_chunk[
+                    valid_positions
+                ].astype(int)
+            )
+
+            right_positions = (
+                candidate_indices[
+                    valid_positions
+                ].astype(int)
+            )
+
+
+            scores = (
+                s1_address_matrix[
+                    left_positions
+                ]
+                .multiply(
+                    candidate_matrix[
+                        right_positions
+                    ]
+                )
+                .sum(axis=1)
+            )
+
+
+            address_tfidf[
+                indices[
+                    valid_positions
+                ]
+            ] = np.asarray(
+                scores
+            ).ravel().astype(
+                np.float32
+            )
+
+
+    # ========================================================
+    # COUNTRY
+    # ========================================================
+
+    country_exact = (
+        (s1_country != "")
+        & (candidate_country != "")
+        & (
+            s1_country
+            == candidate_country
+        )
+    ).astype(np.int8)
+
+
+    # ========================================================
+    # MISSINGNESS
+    # ========================================================
+
+    source1_name_missing = (
+        s1_name == ""
+    ).astype(np.int8)
+
+
+    candidate_name_missing = (
+        candidate_name == ""
+    ).astype(np.int8)
+
+
+    source1_address_missing = (
+        s1_address == ""
+    ).astype(np.int8)
+
+
+    candidate_address_missing = (
+        candidate_address == ""
+    ).astype(np.int8)
+
+
+    source1_country_missing = (
+        s1_country == ""
+    ).astype(np.int8)
+
+
+    candidate_country_missing = (
+        candidate_country == ""
+    ).astype(np.int8)
+
+
+    # ========================================================
+    # LABEL
+    # ========================================================
+
+    pair_keys = list(
+        zip(
+            chunk["source1_entity_id"],
+            chunk["candidate_entity_id"]
+        )
+    )
+
+
+    labels = np.fromiter(
+        (
+            1 if pair in true_pairs else 0
+            for pair in pair_keys
+        ),
+        dtype=np.int8,
+        count=len(pair_keys)
+    )
+
+
+    positive_rows += int(
+        labels.sum()
+    )
+
+
+    total_rows += len(chunk)
+
+
+    # ========================================================
+    # BUILD OUTPUT
+    # ========================================================
+
+    output_df = pd.DataFrame(
+        {
+            "source1_entity_id":
+                chunk[
+                    "source1_entity_id"
+                ].values,
+
+            "candidate_entity_id":
+                chunk[
+                    "candidate_entity_id"
+                ].values,
+
+            "candidate_source":
+                chunk[
+                    "candidate_source"
+                ].values,
+
+            "name_exact":
+                name_exact,
+
+            "name_token_exact":
+                name_token_exact,
+
+            "name_jaccard":
+                name_jaccard,
+
+            "name_length_difference":
+                name_length_difference,
+
+            "name_length_ratio":
+                name_length_ratio,
+
+            "name_tfidf":
+                name_tfidf,
+
+            "address_exact":
+                address_exact,
+
+            "address_token_exact":
+                address_token_exact,
+
+            "address_jaccard":
+                address_jaccard,
+
+            "address_length_difference":
+                address_length_difference,
+
+            "address_length_ratio":
+                address_length_ratio,
+
+            "address_tfidf":
+                address_tfidf,
+
+            "country_exact":
+                country_exact,
+
+            "source1_name_missing":
+                source1_name_missing,
+
+            "candidate_name_missing":
+                candidate_name_missing,
+
+            "source1_address_missing":
+                source1_address_missing,
+
+            "candidate_address_missing":
+                candidate_address_missing,
+
+            "source1_country_missing":
+                source1_country_missing,
+
+            "candidate_country_missing":
+                candidate_country_missing,
+
+            "label":
+                labels
+        },
+        columns=feature_columns
+    )
+
+
+    # ========================================================
+    # WRITE CHUNK
+    # ========================================================
+
+    output_df.to_csv(
+        OUTPUT_FILE,
+        sep="\t",
+        index=False,
+        mode="w" if first_write else "a",
+        header=first_write,
+        compression="gzip"
+    )
+
+
+    first_write = False
+
+
+    print(
+        f"  Chunk complete | "
+        f"Rows: {total_rows:,} | "
+        f"Positive: {positive_rows:,}"
+    )
+
+
+# ============================================================
+# FINAL SUMMARY
+# ============================================================
+
+negative_rows = (
+    total_rows
+    - positive_rows
+)
+
+
+positive_rate = (
+    positive_rows / total_rows * 100
+    if total_rows
+    else 0
+)
+
+
+print("\n" + "=" * 70)
+print("FEATURE ENGINEERING COMPLETE")
+print("=" * 70)
+
+
+print(
+    f"\nTotal feature rows : {total_rows:,}"
+)
+
+print(
+    f"Positive matches   : {positive_rows:,}"
+)
+
+print(
+    f"Negative pairs     : {negative_rows:,}"
+)
+
+print(
+    f"Positive rate      : {positive_rate:.4f}%"
+)
+
+
+# ============================================================
+# WRITE SUMMARY
+# ============================================================
+
+summary = f"""
+BUSINESS ENTITY RESOLUTION
+FEATURE ENGINEERING SUMMARY
+========================================
+
+Candidate pairs processed:
+{total_rows:,}
+
+Positive matches:
+{positive_rows:,}
+
+Negative pairs:
+{negative_rows:,}
+
+Positive rate:
+{positive_rate:.4f}%
+
+FEATURES
+========================================
+
+Name:
+- name_exact
+- name_token_exact
+- name_jaccard
+- name_length_difference
+- name_length_ratio
+- name_tfidf
+
+Address:
+- address_exact
+- address_token_exact
+- address_jaccard
+- address_length_difference
+- address_length_ratio
+- address_tfidf
+
+Country:
+- country_exact
+
+Missingness:
+- source1_name_missing
+- candidate_name_missing
+- source1_address_missing
+- candidate_address_missing
+- source1_country_missing
+- candidate_country_missing
+
+Target:
+- label
+
+Output:
+{OUTPUT_FILE}
+"""
+
+
+with open(
+    SUMMARY_FILE,
+    "w",
+    encoding="utf-8"
+) as f:
+
+    f.write(
+        summary.strip()
+    )
+
+
+print(
+    f"\nFeature file:"
+)
+
+print(
+    OUTPUT_FILE
+)
+
+
+print(
+    f"\nSummary file:"
+)
+
+print(
+    SUMMARY_FILE
+)
+
+
+print("\nDone.")
+

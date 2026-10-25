@@ -1,0 +1,56 @@
+BUSINESS ENTITY RESOLUTION
+MODEL 3 - HISTOGRAM GRADIENT BOOSTING
+========================================
+
+Original feature rows:
+21,633,422
+
+Positive pairs:
+6,855
+
+Negative pairs:
+21,626,567
+
+Negative examples used:
+68,550
+
+Model dataset:
+75,405
+
+Training rows:
+60,324
+
+Validation rows:
+15,081
+
+MODEL SETTINGS
+========================================
+
+learning_rate = 0.08
+max_iter = 250
+max_leaf_nodes = 31
+min_samples_leaf = 20
+l2_regularization = 1.0
+
+Threshold:
+0.50
+
+Precision:
+0.993397
+
+Recall:
+0.987600
+
+F0.5:
+0.992232
+
+PR-AUC:
+0.998577
+
+CONFUSION MATRIX
+========================================
+
+True Negatives  = 13,701
+False Positives = 9
+False Negatives = 17
+True Positives  = 1,354

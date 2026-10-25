@@ -1,0 +1,95 @@
+BUSINESS ENTITY RESOLUTION - SYNTHETIC DATASET SUMMARY
+Random seed: 42
+
+Training Source 1 records: 5,000
+Training Source 2 records: 8,000
+Training Source 3 records: 8,000
+Training total: 21,000
+Training ground-truth rows: 5,000  (matched pairs: 6,855)
+
+Test Source 1 records: 2,000
+Test Source 2 records: 3,000
+Test Source 3 records: 3,000
+Test ground truth: withheld (not in dataset/)
+
+Countries (training, all sources, variants normalised):
+  India: 10,388 (49.5%)
+  USA: 6,025 (28.7%)
+  France: 4,190 (20.0%)
+  missing: 397 (1.9%)
+Countries (test):
+  India: 3,869 (48.4%)
+  USA: 2,293 (28.7%)
+  France: 1,708 (21.3%)
+  missing: 130 (1.6%)
+Non-standard country spellings in train S2+S3 (e.g. IN, U.S., Republic of India): 1,469
+
+Business categories (20): Automobile, Clothing, Construction, Consulting, Education, Electronics, Finance, Food Processing, Furniture, Grocery, Healthcare, Hotels, IT Services, Logistics, Manufacturing, Professional Services, Restaurants, Retail, Software, Technology
+
+Percentage of training Source 1 entities with:
+- zero matches: 1,113 (22.3%)
+- one match: 1,885 (37.7%)
+- multiple matches: 2,002 (40.0%)
+- at least one S2 match: 2,717 (54.3%)
+- at least one S3 match: 2,521 (50.4%)
+- matches in both S2 and S3: 1,351 (27.0%)
+- S2 match count 0/1/2/3: 2283 / 1921 / 595 / 201
+- S3 match count 0/1/2/3: 2479 / 1971 / 480 / 70
+- max matches for one entity: 6
+
+Test Source 1 (from hidden key):
+- zero 469 (23.4%), one 764 (38.2%), multiple 767 (38.4%)
+
+Record composition:
+  train S2: {'unrelated': 2986, 'match': 3714, 'hard_negative': 1300}
+  train S3: {'match': 3141, 'unrelated': 3559, 'hard_negative': 1300}
+  test  S2: {'match': 1444, 'unrelated': 1056, 'hard_negative': 500}
+  test  S3: {'hard_negative': 500, 'match': 1243, 'unrelated': 1257}
+  non-S1 businesses duplicated inside train S2: 312; non-S1 businesses present in both train S2 and S3: 355
+  hard positives (true match listed at a different address, same city): 330
+
+Missing values (percent of records):
+  train source1: names 0 (0.0%) | blank addresses 17 (0.3%) | incomplete addresses 67 (1.3%) | countries 54 (1.1%)
+  train source2: names 281 (3.5%) | blank addresses 186 (2.3%) | incomplete addresses 565 (7.1%) | countries 176 (2.2%)
+  train source3: names 256 (3.2%) | blank addresses 174 (2.2%) | incomplete addresses 718 (9.0%) | countries 167 (2.1%)
+  test source1: names 0 (0.0%) | blank addresses 5 (0.2%) | incomplete addresses 32 (1.6%) | countries 14 (0.7%)
+  test source2: names 89 (3.0%) | blank addresses 66 (2.2%) | incomplete addresses 214 (7.1%) | countries 61 (2.0%)
+  test source3: names 112 (3.7%) | blank addresses 72 (2.4%) | incomplete addresses 302 (10.1%) | countries 55 (1.8%)
+  train overall: names 537 (2.6%), blank addresses 377 (1.8%), incomplete addresses 1,350 (6.4%), countries 397 (1.9%)
+  (incomplete = blank, truncated to a single component, or missing 2+ of street number / city / postal code)
+
+Number of hard negatives:
+  train: 2,920  (S1 look-alike reference entities 320, S2 1300, S3 1300)
+  test : 1,130  (S1 130, S2 500, S3 500)
+  by type (train S2+S3): add_word 722, core_swap 631, brand_change 440, sister_concern 424, chain 383
+  by address relation (train S2+S3): same_street 1071, same_locality 711, same_building 432, other_city 386
+
+Difficulty indicators (training):
+  mean name similarity: true matches: 0.906
+  mean name similarity: hard negatives vs their look-alike S1 record: 0.74
+  mean name similarity: random pairs: 0.266
+  true pairs with IDENTICAL name string: 35.5%
+  true pairs with identical name AND address: 8.8%
+  exact-name baseline recall: 39.3%
+  exact-name baseline precision: 91.3%
+
+Data-quality checks:
+  [PASS]  1. entity_id unique within each source
+  [PASS]  2. Source 1 IDs start with S1-
+  [PASS]  3. Source 2 IDs start with S2-
+  [PASS]  4. Source 3 IDs start with S3-
+  [PASS]  5. Ground truth references only existing S2/S3 IDs  -- 6855 matched IDs
+  [PASS]  6. No Source 1 ID appears as a matched ID
+  [PASS]  7. No duplicate matched IDs within a row
+  [PASS]  8. Every train S1 entity has exactly one GT row
+  [PASS]  9. Some S1 entities have zero matches  -- 1113 entities
+  [PASS] 10. Some S1 entities have multiple matches  -- 2002 entities
+  [PASS] 11. Some S1 entities match in both S2 and S3  -- 1351 entities
+  [PASS] 12. Hard negatives exist (and are never in ground truth)  -- S1 in-source: 320, S2: 1300, S3: 1300
+  [PASS] 13. Missing values exist (names, addresses, countries)
+  [PASS] 14. Country distribution reasonable (IN~50/US~30/FR~20)  -- India 49.5%, USA 28.7%, France 20.0%, missing 1.9%
+  [PASS] 15. Test data has no ground-truth file  -- test_source1.tsv, test_source2.tsv, test_source3.tsv
+  [PASS] 16. No canonical_entity_id in public TSVs (columns + values)
+  [PASS] extra: train/test business-name overlap = 0
+  [PASS] extra: test entities disjoint from train
+  [PASS] extra: every line tab-delimited with 4 fields

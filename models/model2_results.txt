@@ -1,0 +1,76 @@
+BUSINESS ENTITY RESOLUTION
+MODEL 2 - RANDOM FOREST
+========================================
+
+Original feature rows:
+21,633,422
+
+Positive pairs:
+6,855
+
+Negative pairs:
+21,626,567
+
+Negative examples used:
+68,550
+
+Model dataset:
+75,405
+
+Training rows:
+60,324
+
+Validation rows:
+15,081
+
+Random Forest settings:
+n_estimators = 200
+max_depth = 16
+min_samples_leaf = 2
+max_features = sqrt
+class_weight = balanced
+
+Threshold:
+0.50
+
+Precision:
+0.986272
+
+Recall:
+0.995624
+
+F0.5:
+0.988128
+
+PR-AUC:
+0.998760
+
+Confusion Matrix:
+True Negatives  = 13,691
+False Positives = 19
+False Negatives = 6
+True Positives  = 1,365
+
+FEATURE IMPORTANCE
+========================================
+
+                  feature  importance
+               name_tfidf    0.285885
+             name_jaccard    0.198347
+            address_tfidf    0.190780
+          address_jaccard    0.175179
+         name_token_exact    0.041055
+        name_length_ratio    0.033873
+               name_exact    0.026550
+   name_length_difference    0.010696
+     address_length_ratio    0.009644
+      address_token_exact    0.007323
+   candidate_name_missing    0.006964
+            address_exact    0.006131
+address_length_difference    0.004231
+candidate_address_missing    0.002032
+            country_exact    0.001047
+  source1_address_missing    0.000183
+candidate_country_missing    0.000068
+  source1_country_missing    0.000014
+     source1_name_missing    0.000000

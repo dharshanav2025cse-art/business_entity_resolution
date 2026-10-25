@@ -1,0 +1,51 @@
+BUSINESS ENTITY RESOLUTION
+FEATURE ENGINEERING SUMMARY
+========================================
+
+Candidate pairs processed:
+21,633,422
+
+Positive matches:
+6,855
+
+Negative pairs:
+21,626,567
+
+Positive rate:
+0.0317%
+
+FEATURES
+========================================
+
+Name:
+- name_exact
+- name_token_exact
+- name_jaccard
+- name_length_difference
+- name_length_ratio
+- name_tfidf
+
+Address:
+- address_exact
+- address_token_exact
+- address_jaccard
+- address_length_difference
+- address_length_ratio
+- address_tfidf
+
+Country:
+- country_exact
+
+Missingness:
+- source1_name_missing
+- candidate_name_missing
+- source1_address_missing
+- candidate_address_missing
+- source1_country_missing
+- candidate_country_missing
+
+Target:
+- label
+
+Output:
+C:\Users\DHARSHANA\OneDrive\Documents\BusinessEntityResolution\dataset\features\train_features.tsv.gz

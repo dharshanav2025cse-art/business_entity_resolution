@@ -1,0 +1,51 @@
+{
+  "selected_model": "Gradient Boosting",
+  "selected_model_path": "C:\\Users\\DHARSHANA\\OneDrive\\Documents\\BusinessEntityResolution\\models\\gradient_boosting_model.joblib",
+  "selected_threshold": 0.945,
+  "selection_metric": "validation_f05",
+  "selected_f05": 0.9960100487660707,
+  "all_results": [
+    {
+      "model": "Logistic Regression",
+      "path": "C:\\Users\\DHARSHANA\\OneDrive\\Documents\\BusinessEntityResolution\\models\\logistic_regression_model.joblib",
+      "best_threshold": 0.945,
+      "precision": 0.9970566593083149,
+      "recall": 0.9883296863603209,
+      "f05": 0.9952989569560746,
+      "confusion_matrix": {
+        "tn": 13706,
+        "fp": 4,
+        "fn": 16,
+        "tp": 1355
+      }
+    },
+    {
+      "model": "Random Forest",
+      "path": "C:\\Users\\DHARSHANA\\OneDrive\\Documents\\BusinessEntityResolution\\models\\random_forest_model.joblib",
+      "best_threshold": 0.8599999999999999,
+      "precision": 0.9970414201183432,
+      "recall": 0.9832239241429613,
+      "f05": 0.9942469390765599,
+      "confusion_matrix": {
+        "tn": 13706,
+        "fp": 4,
+        "fn": 23,
+        "tp": 1348
+      }
+    },
+    {
+      "model": "Gradient Boosting",
+      "path": "C:\\Users\\DHARSHANA\\OneDrive\\Documents\\BusinessEntityResolution\\models\\gradient_boosting_model.joblib",
+      "best_threshold": 0.945,
+      "precision": 0.9992587101556709,
+      "recall": 0.9832239241429613,
+      "f05": 0.9960100487660707,
+      "confusion_matrix": {
+        "tn": 13709,
+        "fp": 1,
+        "fn": 23,
+        "tp": 1348
+      }
+    }
+  ]
+}
